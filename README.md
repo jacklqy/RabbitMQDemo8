@@ -1,6 +1,6 @@
 # RabbitMQ Demo (.NET 8)
 
-一个基于 .NET 8 的 RabbitMQ 消息队列完整演示项目，包含生产者（WebApi）和消费者（控制台客户端），支持五种核心模式。
+一个基于 .NET 8 的 RabbitMQ 消息队列完整演示项目，包含生产者（WebApi）和消费者（控制台客户端），支持五种核心模式，并实现了完整的消息可靠性保证机制。
 
 ## 功能特性
 
@@ -14,6 +14,11 @@
 - ✅ **消息持久化**：队列、交换器、消息均持久化
 - ✅ **固定队列设计**：Fanout/Direct/Topics模式使用固定队列，防止消息丢失
 - ✅ **异步消费者**：使用 AsyncEventingBasicConsumer 支持 async/await
+- ✅ **死信队列 (DLX)**：处理失败的消息归档和分析
+- ✅ **有限重试+退避策略**：指数退避，避免无限重投递
+- ✅ **连接池**：复用连接和通道资源
+- ✅ **配置文件读取**：RabbitMQ连接参数从配置文件读取，支持环境变量覆盖
+- ✅ **结构化日志**：使用ILogger记录日志，便于问题排查
 
 ## 技术栈
 
@@ -23,6 +28,7 @@
 | RabbitMQ.Client | 6.8.1 | RabbitMQ客户端库 |
 | ASP.NET Core | 8.0 | WebApi框架 |
 | Swashbuckle.AspNetCore | 6.5.0 | Swagger文档生成 |
+| Microsoft.Extensions.Options | 8.0.0 | 配置选项管理 |
 
 ## 项目结构
 
@@ -31,10 +37,13 @@ RabbitMQDemo8/
 ├── RabbitMQDemo.sln                    # 解决方案文件
 ├── RabbitMQ.Shared/                    # 共享类库（核心服务）
 │   ├── Services/
-│   │   ├── RabbitMQConnectionFactory.cs   # 连接工厂
-│   │   └── RabbitMQService.cs             # RabbitMQ核心服务（含发布确认）
+│   │   ├── RabbitMQConnectionFactory.cs   # 连接工厂（支持依赖注入）
+│   │   ├── RabbitMQService.cs             # RabbitMQ核心服务（含发布确认）
+│   │   └── RabbitMQConnectionPool.cs      # 连接池（复用连接和通道）
 │   ├── Constants/
 │   │   └── RabbitMQConstants.cs           # 队列/交换器常量配置
+│   ├── Options/
+│   │   └── RabbitMQOptions.cs             # RabbitMQ配置选项类
 │   ├── HostedServices/
 │   │   └── RabbitMQInitializer.cs         # 应用启动时初始化队列
 │   └── Models/
@@ -48,16 +57,123 @@ RabbitMQDemo8/
 │   │   ├── PubSubController.cs            # 发布/订阅控制器
 │   │   ├── RoutingController.cs           # 路由模式控制器
 │   │   └── TopicsController.cs            # 主题模式控制器
-│   ├── Program.cs                         # 启动配置
-│   └── appsettings.json                   # 应用配置
+│   ├── Program.cs                         # 启动配置（依赖注入注册）
+│   └── appsettings.json                   # 应用配置（含RabbitMQ配置）
 └── RabbitMQ.Consumer/                  # 消费者（控制台客户端）
     ├── Consumers/
     │   ├── SimpleModeConsumer.cs          # 简单模式消费者
     │   ├── WorkQueuesConsumer.cs          # 工作队列消费者
     │   ├── PubSubConsumer.cs              # 发布/订阅消费者
     │   ├── RoutingConsumer.cs             # 路由模式消费者
-    │   └── TopicsConsumer.cs              # 主题模式消费者
-    └── Program.cs                         # 消费者入口
+    │   ├── TopicsConsumer.cs              # 主题模式消费者
+    │   └── DeadLetterConsumer.cs          # 死信队列消费者
+    ├── Program.cs                         # 消费者入口（配置读取和DI）
+    └── appsettings.json                   # 消费者配置（含RabbitMQ配置）
+```
+
+## 配置说明
+
+### 配置文件结构
+
+RabbitMQ 连接参数通过 `appsettings.json` 配置，支持环境变量覆盖。
+
+**生产者配置** (`RabbitMQ.Producer/appsettings.json`)：
+
+```json
+{
+  "RabbitMQ": {
+    "HostName": "localhost",
+    "UserName": "guest",
+    "Password": "guest",
+    "Port": 5672,
+    "VirtualHost": "/",
+    "ConnectionTimeout": 30000,
+    "RequestedHeartbeat": 60,
+    "MaxChannels": 10,
+    "MaxRetryCount": 3,
+    "RetryBackoffMs": 1000
+  }
+}
+```
+
+**消费者配置** (`RabbitMQ.Consumer/appsettings.json`)：
+
+```json
+{
+  "RabbitMQ": {
+    "HostName": "localhost",
+    "UserName": "guest",
+    "Password": "guest",
+    "Port": 5672,
+    "VirtualHost": "/",
+    "ConnectionTimeout": 30000,
+    "RequestedHeartbeat": 60,
+    "MaxChannels": 10,
+    "MaxRetryCount": 3,
+    "RetryBackoffMs": 1000
+  }
+}
+```
+
+### 配置项说明
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| HostName | string | localhost | RabbitMQ服务器地址 |
+| UserName | string | guest | 用户名 |
+| Password | string | guest | 密码 |
+| Port | int | 5672 | 端口号 |
+| VirtualHost | string | / | 虚拟主机 |
+| ConnectionTimeout | int | 30000 | 连接超时时间（毫秒） |
+| RequestedHeartbeat | ushort | 60 | 心跳超时时间（秒） |
+| MaxChannels | int | 10 | 连接池最大通道数 |
+| MaxRetryCount | int | 3 | 最大重试次数 |
+| RetryBackoffMs | int | 1000 | 重试退避基础延迟（毫秒） |
+
+### 环境变量覆盖
+
+生产环境中可通过环境变量覆盖配置：
+
+```bash
+# 设置RabbitMQ主机
+set RabbitMQ__HostName=production-rabbitmq.example.com
+
+# 设置用户名和密码
+set RabbitMQ__UserName=prod-user
+set RabbitMQ__Password=prod-password
+```
+
+### 依赖注入注册
+
+**生产者** (`RabbitMQ.Producer/Program.cs`)：
+
+```csharp
+// 绑定RabbitMQ配置（从appsettings.json读取）
+builder.Services.Configure<RabbitMQOptions>(builder.Configuration.GetSection(RabbitMQOptions.SectionName));
+
+// 注册RabbitMQ服务（按依赖顺序注册）
+builder.Services.AddSingleton<RabbitMQConnectionFactory>();
+builder.Services.AddSingleton<RabbitMQService>();
+builder.Services.AddSingleton<RabbitMQConnectionPool>();
+
+// 注册初始化托管服务（应用启动时初始化队列和交换器）
+builder.Services.AddHostedService<RabbitMQInitializer>();
+```
+
+**消费者** (`RabbitMQ.Consumer/Program.cs`)：
+
+```csharp
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .Build();
+
+var services = new ServiceCollection();
+services.Configure<RabbitMQOptions>(configuration.GetSection(RabbitMQOptions.SectionName));
+services.AddLogging(builder => builder.AddConsole());
+services.AddSingleton<RabbitMQConnectionFactory>();
+services.AddSingleton<RabbitMQConnectionPool>();
+var serviceProvider = services.BuildServiceProvider();
 ```
 
 ## 核心概念
@@ -101,16 +217,61 @@ channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
 channel.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: ShouldRequeue(ex));
 ```
 
-### 3. 异常分类策略
+### 3. 有限重试+退避策略
 
-| 异常类型 | 是否重新入队 | 说明 |
-|----------|-------------|------|
-| `InvalidOperationException` | ❌ 否 | 不可恢复异常（如参数错误），丢弃消息 |
-| 其他异常 | ✅ 是 | 可重试异常（如网络抖动），重新入队 |
+对可重试异常实现有限次数重试，并使用指数退避策略避免消息风暴。
 
-> **生产环境建议**：实现更精细的异常分类、添加重试次数限制、对不可恢复异常发送到死信队列
+**实现方式**：
+- 通过消息头 `x-retry-count` 追踪重试次数
+- 使用指数退避算法计算重试延迟（1秒、2秒、4秒...）
+- 超过最大重试次数后，消息进入死信队列
 
-### 4. 消息持久化
+**重试延迟计算**：
+```csharp
+// 指数退避：RetryBackoffMs * 2^retryCount
+// 示例：1000ms * 2^0 = 1000ms（第1次重试）
+//      1000ms * 2^1 = 2000ms（第2次重试）
+//      1000ms * 2^2 = 4000ms（第3次重试）
+var retryDelay = RabbitMQConstants.RetryBackoffMs * (int)Math.Pow(2, retryCount);
+```
+
+**重试流程**：
+```
+业务队列 → 处理失败 → 检查重试次数
+    ↓                    ↓
+ 重试队列 ← 发送重试消息 ← 未达上限
+    ↓
+ 延迟消费（退避等待）
+    ↓
+ 重新投递到业务队列
+    ↓
+ 达到最大重试次数 → 死信队列
+```
+
+### 4. 死信队列 (DLX)
+
+死信队列用于存储处理失败且达到最大重试次数的消息，支持消息分析和手动处理。
+
+**死信队列配置**：
+- 通过 `x-dead-letter-exchange` 设置死信交换器
+- 通过 `x-dead-letter-routing-key` 设置死信路由键
+- 死信队列绑定到死信交换器
+
+**死信队列消费者操作**：
+- **重新投递**：将消息重新发送到原队列
+- **删除**：确认消息，从死信队列移除
+- **跳过**：不确认消息，保留在死信队列中
+
+### 5. 连接池
+
+连接池用于复用RabbitMQ连接和通道资源，减少连接创建开销。
+
+**核心特性**：
+- 单连接多通道模式，减少TCP连接数
+- 通道复用，避免频繁创建和销毁通道
+- 线程安全的通道获取和释放
+
+### 6. 消息持久化
 
 确保RabbitMQ重启后消息不丢失：
 
@@ -120,7 +281,7 @@ channel.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: ShouldR
 | 交换器持久化 | `durable: true` | 交换器在RabbitMQ重启后保留 |
 | 消息持久化 | `Persistent = true` | 消息写入磁盘 |
 
-### 5. 公平分发（BasicQos）
+### 7. 公平分发（BasicQos）
 
 工作队列模式中启用公平分发，防止负载不均：
 
@@ -287,6 +448,15 @@ dotnet run
 
 根据菜单选择要启动的消费者模式。
 
+### 5. 死信队列消费者
+
+启动后选择死信队列消费者模式，可以查看和处理进入死信队列的消息。
+
+**操作命令**：
+- `r`：重新投递到原队列
+- `d`：删除消息（确认）
+- `s`：跳过（不确认，消息仍在队列中）
+
 ## API接口示例
 
 ### 简单模式
@@ -366,16 +536,20 @@ Fanout、Direct、Topics 模式使用固定队列名称，而非临时队列（`
 | 消息存储 | 队列持久化 + 交换器持久化 + 消息持久化 |
 | 消息路由 | 固定队列设计，防止路由失败 |
 | 消息消费 | 手动确认（BasicAck）+ 异常处理（BasicNack） |
-| 异常恢复 | 可重试异常重新入队，不可恢复异常丢弃 |
+| 异常恢复 | 有限重试+指数退避，超过重试次数进入死信队列 |
+| 死信处理 | 死信队列归档，支持重新投递、删除、跳过操作 |
+| 资源管理 | 连接池复用连接和通道 |
 
 ## 生产环境建议
 
-1. **配置管理**：将RabbitMQ连接配置（Host、Port、Username、Password）从代码中移出，使用配置文件或环境变量
+1. **配置管理**：使用环境变量或配置中心管理RabbitMQ连接参数，避免硬编码
 2. **死信队列**：实现死信队列（DLX），对不可恢复异常的消息进行归档和分析
 3. **重试策略**：实现有限重试+退避策略，避免无限重投递
 4. **监控告警**：集成监控系统，监控队列长度、消息延迟、消费者状态
 5. **连接池管理**：实现连接池，复用连接资源
 6. **日志记录**：完善日志记录，便于问题排查
+7. **高可用部署**：配置RabbitMQ集群，确保服务可用性
+8. **权限管理**：创建专用用户，限制不同应用的访问权限
 
 ## License
 
