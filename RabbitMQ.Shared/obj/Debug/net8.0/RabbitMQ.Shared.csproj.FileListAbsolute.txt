@@ -1,0 +1,12 @@
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\RabbitMQ.Shared.csproj.AssemblyReference.cache
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\RabbitMQ.Shared.GeneratedMSBuildEditorConfig.editorconfig
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\RabbitMQ.Shared.AssemblyInfoInputs.cache
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\RabbitMQ.Shared.AssemblyInfo.cs
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\RabbitMQ.Shared.csproj.CoreCompileInputs.cache
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\bin\Debug\net8.0\RabbitMQ.Shared.deps.json
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\bin\Debug\net8.0\RabbitMQ.Shared.dll
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\bin\Debug\net8.0\RabbitMQ.Shared.pdb
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\RabbitMQ.Shared.dll
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\refint\RabbitMQ.Shared.dll
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\RabbitMQ.Shared.pdb
+d:\LC\RabbitMQDemo8\RabbitMQ.Shared\obj\Debug\net8.0\ref\RabbitMQ.Shared.dll
