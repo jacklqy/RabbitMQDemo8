@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "新建配置文件",
+    "Projects": [
+      {
+        "Path": "RabbitMQ.Producer\\RabbitMQ.Producer.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      },
+      {
+        "Path": "RabbitMQ.Consumer\\RabbitMQ.Consumer.csproj",
+        "Action": "Start",
+        "DebugTarget": "RabbitMQ.Consumer"
+      }
+    ]
+  }
+]
